@@ -24,24 +24,29 @@ export interface TapEvents {
  * `setRawMode`).
  */
 export class StdinTap extends EventEmitter<TapEvents> {
-  readonly stdin: Readable & { isTTY: boolean; setRawMode: (mode: boolean) => unknown };
+  readonly stdin: Readable & { isTTY: boolean; setRawMode: (mode: boolean) => unknown; ref: () => void; unref: () => void };
   private readonly splitter = new InputSplitter();
   private readonly decoder = new StringDecoder("utf8");
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
+  private disposed = false;
   private readonly onData = (chunk: Buffer | string) => this.handle(typeof chunk === "string" ? chunk : this.decoder.write(chunk));
 
   constructor(private readonly source: RawStdin = process.stdin) {
     super();
     const proxy = new Readable({ read() {} }) as StdinTap["stdin"];
     proxy.isTTY = Boolean(source.isTTY);
+    // Enter raw mode before Ink's constructor writes `CSI ? u`, so fast terminal
+    // replies (`CSI ? 0 u`) are delivered immediately instead of being echoed
+    // onto row 0 as `^[[?0u` by the kernel TTY driver (§6.2).
+    if (proxy.isTTY) source.setRawMode?.(true);
     proxy.setRawMode = (mode: boolean) => {
-      source.setRawMode?.(mode);
+      if (mode || this.disposed) source.setRawMode?.(mode);
       return proxy;
     };
     // Ink refs/unrefs stdin around raw mode so an idle app can exit; forward
     // that to the real stream, which is what actually holds the event loop.
-    (proxy as unknown as { ref: () => void }).ref = () => source.ref();
-    (proxy as unknown as { unref: () => void }).unref = () => source.unref();
+    proxy.ref = () => source.ref();
+    proxy.unref = () => source.unref();
     this.stdin = proxy;
     source.on("data", this.onData);
   }
@@ -74,7 +79,9 @@ export class StdinTap extends EventEmitter<TapEvents> {
   }
 
   dispose(): void {
+    this.disposed = true;
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.source.off("data", this.onData);
+    if (this.source.isTTY) this.source.setRawMode?.(false);
   }
 }

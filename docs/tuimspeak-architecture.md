@@ -279,8 +279,11 @@ offers no events, so tuimspeak has its own layer.
 ### 6.2 Input splitting
 
 Ink reads stdin through `readable`; a second `data` listener would steal its
-bytes. `StdinTap` owns `process.stdin` and hands Ink a proxy stream (with
-`isTTY`, `setRawMode`, `ref`, `unref`) carrying everything that is not:
+bytes. `StdinTap` owns `process.stdin`, enables raw mode immediately (before
+Ink's constructor queries `CSI ? u`, so fast kitty replies such as `CSI ? 0 u`
+are delivered right away instead of being echoed onto row 0 as `^[[?0u` by the
+kernel TTY driver), and hands Ink a proxy stream (with `isTTY`, `setRawMode`,
+`ref`, `unref`) carrying everything that is not:
 
 - an SGR mouse report or a focus event (to `MouseBus`),
 - a kitty keyboard **release** event (`CSI …:3u|~|A-Z`). Ink forwards

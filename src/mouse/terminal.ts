@@ -16,8 +16,8 @@ export const HOVER_ON = "\x1b[?1003h";
 export const HOVER_OFF = "\x1b[?1003l";
 /** Ink emits `?1049h` without homing the cursor; strict terminals keep the shell prompt's column (§6.1). */
 export const ALT_SCREEN_ON = "\x1b[?1049h";
-export const ALT_SCREEN_HOME = "\x1b[?1049h\x1b[2J\x1b[H";
-
+export const CLEAR_AND_HOME = "\x1b[2J\x1b[H";
+export const ALT_SCREEN_HOME = `${ALT_SCREEN_ON}${CLEAR_AND_HOME}`;
 let enabled = false;
 let hover = false;
 
@@ -64,16 +64,43 @@ export function withAlternateScreenHome(chunk: string | Uint8Array): string | Ui
   return chunk.includes(ALT_SCREEN_ON) && !chunk.includes(ALT_SCREEN_HOME) ? chunk.replaceAll(ALT_SCREEN_ON, ALT_SCREEN_HOME) : chunk;
 }
 
-/** Ensures entering `?1049h` immediately clears and homes the alternate screen while preserving the saved main-screen cursor. */
+/**
+ * Ensures entering `?1049h` and painting the first frame both clear and home
+ * the alternate screen while preserving the saved main-screen cursor.
+ */
 export function installAlternateScreenHome(stdout: Pick<NodeJS.WriteStream, "write"> = process.stdout): () => void {
   const original = stdout.write.bind(stdout);
-  stdout.write = ((chunk: string | Uint8Array, ...rest: unknown[]) =>
-    (original as (...args: unknown[]) => boolean)(withAlternateScreenHome(chunk), ...rest)) as typeof stdout.write;
+  let awaitingFirstFrame = false;
+  stdout.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+    const isBytes = chunk instanceof Uint8Array;
+    let text = isBytes ? Buffer.from(chunk).toString("utf8") : chunk;
+    let changed = false;
+    if (text.includes(ALT_SCREEN_ON)) {
+      awaitingFirstFrame = true;
+      if (!text.includes(ALT_SCREEN_HOME)) {
+        text = text.replaceAll(ALT_SCREEN_ON, ALT_SCREEN_HOME);
+        changed = true;
+      }
+    }
+    if (awaitingFirstFrame && text.includes("\n")) {
+      awaitingFirstFrame = false;
+      if (!text.startsWith(CLEAR_AND_HOME) && !text.includes(ALT_SCREEN_HOME)) {
+        text = `${CLEAR_AND_HOME}${text}`;
+        changed = true;
+      }
+    }
+    let out: string | Uint8Array = chunk;
+    if (changed) out = isBytes ? Buffer.from(text, "utf8") : text;
+    return (original as (...args: unknown[]) => boolean)(out, ...rest);
+  }) as typeof stdout.write;
   return () => {
     stdout.write = original;
   };
 }
 
 export function installTerminalRestore(): void {
-  process.on("exit", disableMouse);
+  process.on("exit", () => {
+    disableMouse();
+    if (process.stdin.isTTY) process.stdin.setRawMode?.(false);
+  });
 }

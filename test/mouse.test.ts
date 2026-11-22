@@ -1,8 +1,9 @@
+import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
-import { InputSplitter, decodeSgrMouse } from "../src/mouse/sgr.ts";
+import { InputSplitter, decodeSgrMouse, type MouseEvent } from "../src/mouse/sgr.ts";
 import { MouseBus, type Rect, type RegionHandlers } from "../src/mouse/bus.ts";
-import { ALT_SCREEN_HOME, installAlternateScreenHome, withAlternateScreenHome } from "../src/mouse/terminal.ts";
-import type { MouseEvent } from "../src/mouse/sgr.ts";
+import { StdinTap } from "../src/mouse/tap.ts";
+import { ALT_SCREEN_HOME, CLEAR_AND_HOME, installAlternateScreenHome, withAlternateScreenHome } from "../src/mouse/terminal.ts";
 
 const press = (x: number, y: number, button: "left" | "right" = "left"): MouseEvent => ({
   kind: "press", button, x, y, shift: false, alt: false, ctrl: false,
@@ -200,8 +201,31 @@ describe("installAlternateScreenHome (§6.1)", () => {
     } as Pick<NodeJS.WriteStream, "write">;
     const restore = installAlternateScreenHome(fakeStdout);
     fakeStdout.write("\x1b[?1049h");
+    fakeStdout.write("\x1b[?u");
+    fakeStdout.write("top bar\nnext line");
+    fakeStdout.write("second frame\nline");
     restore();
     fakeStdout.write("\x1b[?1049h");
-    expect(written).toEqual([ALT_SCREEN_HOME, "\x1b[?1049h"]);
+    expect(written).toEqual([ALT_SCREEN_HOME, "\x1b[?u", `${CLEAR_AND_HOME}top bar\nnext line`, "second frame\nline", "\x1b[?1049h"]);
+  });
+});
+
+describe("StdinTap raw mode (§6.2)", () => {
+  test("enables raw mode on construction before Ink queries kitty keyboard, and restores on dispose", () => {
+    const rawModes: boolean[] = [];
+    const fakeSource = Object.assign(new EventEmitter(), {
+      isTTY: true,
+      setRawMode(mode: boolean) {
+        rawModes.push(mode);
+      },
+      ref() {},
+      unref() {},
+    }) as unknown as NodeJS.ReadStream; // SAFETY: minimal TTY double exercising StdinTap's raw-mode lifecycle
+    const tap = new StdinTap(fakeSource);
+    expect(rawModes).toEqual([true]);
+    tap.stdin.setRawMode(false);
+    expect(rawModes).toEqual([true]);
+    tap.dispose();
+    expect(rawModes).toEqual([true, false]);
   });
 });
