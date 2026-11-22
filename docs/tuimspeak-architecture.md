@@ -602,8 +602,10 @@ runtime for the target (`--target bun-darwin-arm64`, `bun-linux-x64-baseline`,
 by an empty module in `scripts/build.ts`, because the bundler hoists it to
 startup. The version is `package.json`'s, compiled in.
 
-CI builds five platforms: `linux-x64`, `linux-arm64`, `darwin-arm64`,
-`darwin-x64`, `windows-x64`. Each release asset is
+CI builds four platforms: `linux-x64`, `linux-arm64`, `darwin-arm64`,
+`windows-x64`. Intel Macs are not built: GitHub no longer offers a free
+x86_64 macOS runner, and they cannot run the arm64 build, so they build from
+source. Each release asset is
 `tuimspeak-<platform>.tar.gz` (`.zip` on Windows) plus `<asset>.sha256`,
 holding `tuimspeak`, `ts-connector`, `tuim-audio` (`.exe` on Windows),
 `README.md` and `licenses/` (tuimspeak MIT, WebSpeak3 MIT, tsclientlib MIT OR
@@ -675,6 +677,7 @@ error over the UI.
 - **Windows** needs Windows Terminal for the mouse; the legacy console host
   is keyboard-only (§6.5). Windows Terminal does not report key releases,
   so hold keys toggle there.
+- **No prebuilt Intel Mac version** (§12.1); build from source there.
 - **Releases are unsigned.** macOS Gatekeeper and Windows SmartScreen may
   warn on first start; the install scripts verify checksums but not
   signatures.

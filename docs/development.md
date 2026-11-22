@@ -154,7 +154,8 @@ people are. Some servers refuse `serverconninfo`; that shows once as
 ## Continuous integration
 
 `.github/workflows/release.yml` runs on pushes, tags and pull requests, for
-linux-x64, linux-arm64, darwin-arm64, darwin-x64 and windows-x64: TypeScript
+linux-x64, linux-arm64, darwin-arm64 and windows-x64 (no free Intel macOS
+runner exists any more): TypeScript
 typecheck and tests, `cargo fmt`/`clippy -D warnings`/`test` for tuim-audio,
 the native builds, the single executable for the matching Bun target, a smoke
 run of `tuimspeak --version`, and a `.tar.gz` (`.zip` on Windows, with all

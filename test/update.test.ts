@@ -16,6 +16,7 @@ describe("update helpers (§12.4)", () => {
 
   test("platforms and asset names", () => {
     expect(currentPlatform("darwin", "arm64")).toBe("darwin-arm64");
+    expect(currentPlatform("darwin", "x64")).toBeNull();
     expect(currentPlatform("linux", "x64")).toBe("linux-x64");
     expect(currentPlatform("win32", "x64")).toBe("windows-x64");
     expect(currentPlatform("win32", "arm64")).toBeNull();

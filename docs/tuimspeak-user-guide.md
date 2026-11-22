@@ -69,6 +69,8 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/st0nie/tuimspeak/main/install.ps1 | iex
 ```
 
+There is no prebuilt version for Intel Macs; build from source (section 1.2).
+
 The script downloads the latest release for your system, checks its SHA-256,
 and installs it (§12.2):
 
@@ -102,7 +104,7 @@ identities if you want the same TeamSpeak UID later.
 ## 1.1a From a release archive by hand
 
 Download `tuimspeak-<platform>.tar.gz` (`linux-x64`, `linux-arm64`,
-`darwin-arm64`, `darwin-x64`) or `tuimspeak-windows-x64.zip` from the
+`darwin-arm64`) or `tuimspeak-windows-x64.zip` from the
 releases page, check it against the `.sha256` file, and unpack the three
 programs into one directory on your `PATH`. Archives downloaded with a
 browser are quarantined on macOS (`xattr -d com.apple.quarantine tuimspeak

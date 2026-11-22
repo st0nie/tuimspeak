@@ -20,13 +20,14 @@ export interface Release {
   assets: { name: string; url: string }[];
 }
 
-export type Platform = "linux-x64" | "linux-arm64" | "darwin-arm64" | "darwin-x64" | "windows-x64";
+export type Platform = "linux-x64" | "linux-arm64" | "darwin-arm64" | "windows-x64";
 
 export function currentPlatform(platform: string = process.platform, arch: string = process.arch): Platform | null {
   const cpu = arch === "arm64" ? "arm64" : arch === "x64" ? "x64" : null;
   if (!cpu) return null;
   if (platform === "linux") return `linux-${cpu}`;
-  if (platform === "darwin") return `darwin-${cpu}`;
+  // No Intel Mac builds (§12.1).
+  if (platform === "darwin") return cpu === "arm64" ? "darwin-arm64" : null;
   if (platform === "win32" && cpu === "x64") return "windows-x64";
   return null;
 }

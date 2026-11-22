@@ -42,7 +42,7 @@ bun run dev --demo        # try it without a server
 bun run dev voice.example.com -n alice
 ```
 
-Release archives for linux-x64, linux-arm64, darwin-arm64, darwin-x64 and windows-x64 are built by CI.
+Release archives for linux-x64, linux-arm64, darwin-arm64 (Apple Silicon) and windows-x64 are built by CI. Intel Macs build from source.
 
 ## Documentation
 

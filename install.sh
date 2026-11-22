@@ -37,6 +37,9 @@ if [ "$os" = darwin ] && [ "$arch" = x64 ] && [ "$(sysctl -n sysctl.proc_transla
   arch=arm64
 fi
 platform="$os-$arch"
+if [ "$platform" = darwin-x64 ]; then
+  die "there is no prebuilt version for Intel Macs; build from source: https://github.com/$REPO#from-source"
+fi
 asset="tuimspeak-$platform.tar.gz"
 
 if [ -z "$VERSION" ]; then
