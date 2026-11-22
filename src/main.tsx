@@ -7,7 +7,7 @@ import { loadBookmarks, loadConfig } from "./config/config.ts";
 import { MouseBus } from "./mouse/bus.ts";
 import { MouseProvider } from "./mouse/react.tsx";
 import { StdinTap } from "./mouse/tap.ts";
-import { disableMouse, enableMouse, installTerminalRestore } from "./mouse/terminal.ts";
+import { disableMouse, enableMouse, installAlternateScreenHome, installTerminalRestore } from "./mouse/terminal.ts";
 import { audioBinary, connectorBinary } from "./native.ts";
 import { parseAddress } from "./connector/address.ts";
 import { createDemoConnector } from "./demo/connector.ts";
@@ -126,6 +126,7 @@ async function main(): Promise<void> {
     if (state.config.pttKey !== prev.config.pttKey || state.config.whisperKey !== prev.config.whisperKey) tap.setHoldKeys(controller.holdKeys());
   });
 
+  installAlternateScreenHome();
   installTerminalRestore();
   let quitting = false;
   const quit = async () => {

@@ -6,7 +6,7 @@ import type { FileEntry } from "../../connector/protocol.ts";
 import type { SessionState } from "../../state/session.ts";
 import { Button } from "../Button.tsx";
 import { colors, fit } from "../theme.ts";
-import { Hint, ListBox, Modal, Row, formatBytes, innerWidth, type Screen } from "./kit.tsx";
+import { ActionBar, Hint, ListBox, Modal, Row, formatBytes, innerWidth, type Screen } from "./kit.tsx";
 
 type Props = { controller: Controller; dialog: Extract<Dialog, { kind: "files" }>; screen: Screen };
 
@@ -29,6 +29,7 @@ export function FilesDialog({ controller, dialog, screen }: Props) {
     session ? (s as SessionState).snapshot?.channels.find((c) => c.id === dialog.channelId)?.name : undefined,
   );
   const [selected, setSelected] = useState(0);
+  const [barFocused, setBarFocused] = useState(false);
   const close = () => controller.closeDialog();
   const width = 96;
   const inner = innerWidth(width, screen);
@@ -109,7 +110,8 @@ export function FilesDialog({ controller, dialog, screen }: Props) {
     });
 
   useInput((input, key) => {
-    if (key.escape) close();
+    if (key.escape || (!session && (key.return || input === " "))) close();
+    else if (key.tab) setBarFocused((b) => !b);
     else if (key.backspace) path !== "/" && list(parentOf(path));
     else if (input === "u") upload();
     else if (input === "n") mkdir();
@@ -123,6 +125,9 @@ export function FilesDialog({ controller, dialog, screen }: Props) {
     return (
       <Modal title="Files" width={50} screen={screen} onClose={close}>
         <Text color="gray">The connection is gone.</Text>
+        <Box marginTop={1}>
+          <Button label=" Close " focused color={colors.accent} layer="modal" onClick={close} />
+        </Box>
       </Modal>
     );
   }
@@ -139,6 +144,7 @@ export function FilesDialog({ controller, dialog, screen }: Props) {
         selected={index}
         onSelect={setSelected}
         onActivate={activate}
+        focused={!barFocused}
         height={Math.max(3, Math.min(16, screen.rows - 14))}
         width={inner}
         empty={loaded ? "Empty folder" : "Loading..."}
@@ -149,15 +155,19 @@ export function FilesDialog({ controller, dialog, screen }: Props) {
           return <Row selected={sel} color={e.isFile ? undefined : colors.accent} text={fit(`${e.isFile ? "  " : "▸ "}${fit(e.name, nameWidth)} ${size.padStart(10)}  ${fit(e.timestamp, 18)}`, w)} />;
         }}
       />
-      <Box marginTop={1} gap={1} flexWrap="wrap">
-        <Button layer="modal" label=" Download " disabled={!currentEntry?.isFile} onClick={() => currentEntry && download(currentEntry)} />
-        <Button layer="modal" label=" Upload... " onClick={upload} />
-        <Button layer="modal" label=" New folder " onClick={mkdir} />
-        <Button layer="modal" label=" Rename " disabled={!currentEntry} onClick={() => currentEntry && rename(currentEntry)} />
-        <Button layer="modal" label=" Delete " disabled={!currentEntry} onClick={() => currentEntry && remove(currentEntry)} />
-        <Button layer="modal" label=" Refresh " onClick={() => list(path)} />
-        <Button layer="modal" label=" Close " color={colors.accent} onClick={close} />
-      </Box>
+      <ActionBar
+        focused={barFocused}
+        gap={1}
+        actions={[
+          { label: " Download ", disabled: !currentEntry?.isFile, onTrigger: () => currentEntry && download(currentEntry) },
+          { label: " Upload... ", onTrigger: upload },
+          { label: " New folder ", onTrigger: mkdir },
+          { label: " Rename ", disabled: !currentEntry, onTrigger: () => currentEntry && rename(currentEntry) },
+          { label: " Delete ", disabled: !currentEntry, onTrigger: () => currentEntry && remove(currentEntry) },
+          { label: " Refresh ", onTrigger: () => list(path) },
+          { label: " Close ", color: colors.accent, onTrigger: close },
+        ]}
+      />
       {recent.map((t) => {
         const pct = t.size > 0 ? Math.min(100, Math.floor((t.done / t.size) * 100)) : t.state === "done" ? 100 : 0;
         const status = t.state === "error" ? `failed: ${t.message ?? ""}` : t.state === "done" ? "done" : `${pct}%`;

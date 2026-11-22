@@ -11,13 +11,14 @@ export interface ButtonProps {
   onRelease?: () => void;
   onRightClick?: (e: { x: number; y: number }) => void;
   active?: boolean;
+  focused?: boolean;
   color?: string;
   disabled?: boolean;
   layer?: Layer;
 }
 
-/** A clickable `[ label ]`. */
-export function Button({ label, onClick, onPress, onRelease, onRightClick, active, color, disabled, layer }: ButtonProps) {
+/** A clickable, keyboard-focusable `[ label ]`. */
+export function Button({ label, onClick, onPress, onRelease, onRightClick, active, focused, color, disabled, layer }: ButtonProps) {
   const ref = useRef<DOMElement>(null);
   useMouseRegion(
     ref,
@@ -29,9 +30,10 @@ export function Button({ label, onClick, onPress, onRelease, onRightClick, activ
     },
     { layer },
   );
+  const fg = disabled ? "gray" : focused ? "cyan" : color;
   return (
     <Box ref={ref} flexShrink={0}>
-      <Text inverse={active} color={disabled ? "gray" : color} dimColor={disabled}>
+      <Text inverse={Boolean(active || focused)} bold={Boolean(focused)} color={fg} dimColor={disabled}>
         [{label}]
       </Text>
     </Box>

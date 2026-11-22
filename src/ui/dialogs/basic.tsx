@@ -2,28 +2,64 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Text, useInput, type DOMElement } from "ink";
 import { useStore } from "zustand";
 import type { Controller, Dialog, MenuItem } from "../../app/controller.ts";
+import type { Bookmark } from "../../config/config.ts";
 import { parseAddress } from "../../connector/address.ts";
 import { useMouseRegion } from "../../mouse/react.tsx";
 import { setHoverTracking } from "../../mouse/terminal.ts";
 import { Button } from "../Button.tsx";
 import { colors, fit, stringWidth } from "../theme.ts";
-import { Form, Hint, Modal, Toggle, innerWidth, type Screen } from "./kit.tsx";
+import { ActionBar, Form, Hint, Modal, Toggle, innerWidth, type FormItem, type FormRow, type Screen } from "./kit.tsx";
 
 type Props<K extends Dialog["kind"]> = { controller: Controller; dialog: Extract<Dialog, { kind: K }>; screen: Screen };
+
+function bookmarkRows(controller: Controller, bookmarks: Bookmark[], inner: number, close: () => void): FormRow[] {
+  return bookmarks.map((b, i) => {
+    const connect = () => {
+      close();
+      controller.connectBookmark(b);
+    };
+    const edit = () => controller.openDialog({ kind: "connect", editBookmark: i });
+    const remove = () =>
+      controller.openDialog({
+        kind: "confirm",
+        title: "Delete bookmark",
+        message: `Delete the bookmark "${b.name}"?`,
+        confirmLabel: "Delete",
+        onConfirm: () => {
+          controller.deleteBookmark(i);
+          controller.openDialog({ kind: "connect" });
+        },
+      });
+    return {
+      key: `bookmark:${i}:${b.address}`,
+      gap: 1,
+      marginBottom: i === bookmarks.length - 1 ? 1 : 0,
+      trailing: <Text wrap="truncate-end">{fit(` ${b.name}  ${b.address}`, Math.max(0, inner - 30))}</Text>,
+      items: [
+        { key: "connect", render: (f) => <Button layer="modal" focused={f} label=" Connect " color={colors.accent} onClick={connect} />, onActivate: connect },
+        { key: "edit", render: (f) => <Button layer="modal" focused={f} label="Edit" onClick={edit} />, onActivate: edit },
+        { key: "delete", render: (f) => <Button layer="modal" focused={f} label="Delete" onClick={remove} />, onActivate: remove },
+      ],
+    };
+  });
+}
 
 /** §9.1: connect form plus bookmarks (Connect, Edit, Delete; Save as bookmark). */
 export function ConnectDialog({ controller, dialog, screen }: Props<"connect">) {
   const config = useStore(controller.store, (s) => s.config);
   const bookmarks = useStore(controller.store, (s) => s.bookmarks);
-  const [save, setSave] = useState(dialog.editBookmark !== undefined);
-  const [savePassword, setSavePassword] = useState(false);
   const editing = dialog.editBookmark !== undefined ? bookmarks[dialog.editBookmark] : undefined;
+  const [save, setSave] = useState(dialog.editBookmark !== undefined);
+  const [savePassword, setSavePassword] = useState(Boolean(editing?.serverPassword));
   const close = () => controller.closeDialog();
   const width = 70;
   const inner = innerWidth(width, screen);
 
-  const submit = (v: Record<string, string>) => {
-    if (!v.address?.trim()) return;
+  const submit = (v: Record<string, string>): string | void => {
+    if (!v.address?.trim()) {
+      controller.notify("Enter a server address", "error");
+      return "address";
+    }
     const parsed = parseAddress(v.address);
     const nickname = v.nickname?.trim() || parsed.nickname || config.nickname;
     const password = v.password || parsed.serverPassword;
@@ -48,41 +84,26 @@ export function ConnectDialog({ controller, dialog, screen }: Props<"connect">) 
     controller.setFocus("tree");
   };
 
+  const toggleItems: FormItem[] = [
+    ...(!editing
+      ? [{ key: "save", render: (f: boolean) => <Toggle label="Save as bookmark" value={save} focused={f} onChange={setSave} />, onActivate: () => setSave((s) => !s) }]
+      : []),
+    {
+      key: "savePassword",
+      render: (f: boolean) => <Toggle label="Store password in bookmark" value={savePassword} focused={f} onChange={setSavePassword} />,
+      onActivate: () => setSavePassword((s) => !s),
+    },
+  ];
+
   return (
     <Modal title={editing ? `Edit bookmark ${editing.name}` : "Connect to server"} width={width} screen={screen} onClose={close}>
-      {!editing && bookmarks.length > 0 && (
-        <Box flexDirection="column" marginBottom={1}>
-          <Text color="gray">Bookmarks</Text>
-          {bookmarks.map((b, i) => (
-            <Box key={`${i}:${b.address}`} gap={1}>
-              <Button layer="modal" label=" Connect " color={colors.accent} onClick={() => { close(); controller.connectBookmark(b); }} />
-              <Button layer="modal" label="Edit" onClick={() => controller.openDialog({ kind: "connect", editBookmark: i })} />
-              <Button
-                layer="modal"
-                label="Delete"
-                onClick={() =>
-                  controller.openDialog({
-                    kind: "confirm",
-                    title: "Delete bookmark",
-                    message: `Delete the bookmark "${b.name}"?`,
-                    confirmLabel: "Delete",
-                    onConfirm: () => {
-                      controller.deleteBookmark(i);
-                      controller.openDialog({ kind: "connect" });
-                    },
-                  })
-                }
-              />
-              <Text wrap="truncate-end">{fit(` ${b.name}  ${b.address}`, Math.max(0, inner - 30))}</Text>
-            </Box>
-          ))}
-        </Box>
-      )}
       <Form
         width={inner}
         submitLabel={editing ? "Save" : "Connect"}
         onCancel={close}
         onSubmit={submit}
+        header={!editing && bookmarks.length > 0 ? <Text color="gray">Bookmarks</Text> : undefined}
+        beforeRows={!editing && bookmarks.length > 0 ? bookmarkRows(controller, bookmarks, inner, close) : []}
         initial={{
           address: editing?.address ?? "",
           nickname: editing?.nickname ?? config.nickname,
@@ -97,13 +118,9 @@ export function ConnectDialog({ controller, dialog, screen }: Props<"connect">) 
           { label: "Channel", key: "channel", placeholder: "default channel path (optional)" },
           { label: "Name", key: "name", placeholder: "bookmark name (when saving)" },
         ]}
-        extra={
-          <Box marginTop={1} gap={3}>
-            {!editing && <Toggle label="Save as bookmark" value={save} onChange={setSave} />}
-            <Toggle label="Store password in bookmark" value={savePassword} onChange={setSavePassword} />
-          </Box>
-        }
+        afterRows={[{ key: "toggles", gap: 3, marginTop: 1, items: toggleItems }]}
       />
+      <Hint>↑↓/Tab move · ←→ switch · Space toggle · Enter submit · Esc cancel</Hint>
     </Modal>
   );
 }
@@ -135,29 +152,33 @@ export function ConfirmDialog({ controller, dialog, screen }: Props<"confirm">) 
   };
   useInput((input, key) => {
     if (key.escape || input === "n") close();
-    else if (key.return || input === "y") confirm();
+    else if (input === "y") confirm();
   });
   return (
     <Modal title={dialog.title} width={60} screen={screen} onClose={close}>
       <Text wrap="wrap">{dialog.message}</Text>
-      <Box marginTop={1} gap={2}>
-        <Button label={` ${dialog.confirmLabel} `} color={colors.error} layer="modal" onClick={confirm} />
-        <Button label=" Cancel " layer="modal" onClick={close} />
-      </Box>
-      <Hint>Enter/y confirm · Esc/n cancel</Hint>
+      <ActionBar
+        focused
+        actions={[
+          { label: ` ${dialog.confirmLabel} `, color: colors.error, onTrigger: confirm },
+          { label: " Cancel ", onTrigger: close },
+        ]}
+      />
+      <Hint>←→ select · Enter/y confirm · Esc/n cancel</Hint>
     </Modal>
   );
 }
 
 const HELP: [string, string][] = [
   ["Click / ↑↓", "Select channel or client"],
-  ["Double-click / Enter", "Join channel, open private chat"],
+  ["Double-click / Enter", "Join channel, open private chat (or connect on welcome)"],
   ["Right-click / m", "Context menu: whisper, volume, move, kick, files..."],
   ["Click ▸ / ←→", "Collapse / expand channel"],
   ["Drag a person", "Drop on a channel to move them"],
   ["/", "Filter the tree"],
   ["Wheel / PgUp PgDn", "Scroll"],
-  ["Tab", "Switch between tree and chat"],
+  ["Tab", "Switch between tree and chat (or dialog controls)"],
+  ["Dialogs: ↑↓ / ←→ / Space", "Move between rows/buttons and toggle checkboxes"],
   ["Ctrl+← / Ctrl+→", "Previous / next chat tab"],
   ["Ctrl+W", "Close private chat tab"],
   ["Alt+1..9", "Switch server tab"],
@@ -168,8 +189,8 @@ const HELP: [string, string][] = [
   ["Ctrl+X / Ctrl+D", "Mute microphone / sound"],
   ["F2", "Settings"],
   ["Ctrl+N", "Connect to a server"],
-  ["p", "Poke selected client"],
-  ["Ctrl+Q", "Quit"],
+  ["p / r", "Poke selected client / reconnect disconnected server"],
+  ["Ctrl+Q", "Quit (`q` in tree or welcome)"],
   ["", ""],
   ["Text selection", "Hold Shift (Linux), Option (iTerm2) or Fn (Terminal.app)"],
 ];
@@ -177,18 +198,18 @@ const HELP: [string, string][] = [
 export function HelpDialog({ controller, screen }: Props<"help">) {
   const close = () => controller.closeDialog();
   useInput((input, key) => {
-    if (key.escape || key.return || input === "q" || input === "?") close();
+    if (key.escape || key.return || input === " " || input === "q" || input === "?") close();
   });
   return (
     <Modal title="tuimspeak help" width={78} screen={screen} onClose={close}>
       {HELP.slice(0, Math.max(4, screen.rows - 7)).map(([k, v], i) => (
         <Text key={i} wrap="truncate-end">
-          <Text color={colors.accent}>{k.padEnd(22)}</Text>
+          <Text color={colors.accent}>{k.padEnd(24)}</Text>
           {v}
         </Text>
       ))}
       <Box marginTop={1}>
-        <Button label=" Close " layer="modal" onClick={close} />
+        <Button label=" Close " focused color={colors.accent} layer="modal" onClick={close} />
       </Box>
     </Modal>
   );
@@ -204,12 +225,26 @@ export function AwayDialog({ controller, screen }: Props<"away">) {
   };
   return (
     <Modal title="Set away" width={60} screen={screen} onClose={close}>
-      <Box gap={1} flexWrap="wrap" marginBottom={1}>
-        {AWAY_PRESETS.map((p) => (
-          <Button key={p} layer="modal" label={` ${p} `} onClick={() => set(p)} />
-        ))}
-      </Box>
-      <Form width={innerWidth(60, screen)} submitLabel="Away" onCancel={close} onSubmit={(v) => set(v.value ?? "")} initial={{ value: "" }} fields={[{ label: "Message", key: "value", placeholder: "custom message" }]} />
+      <Form
+        width={innerWidth(60, screen)}
+        submitLabel="Away"
+        onCancel={close}
+        beforeRows={[
+          {
+            key: "presets",
+            gap: 1,
+            marginBottom: 1,
+            items: AWAY_PRESETS.map((p) => ({
+              key: p,
+              render: (f) => <Button layer="modal" focused={f} label={` ${p} `} onClick={() => set(p)} />,
+              onActivate: () => set(p),
+            })),
+          },
+        ]}
+        onSubmit={(v) => set(v.value ?? "")}
+        initial={{ value: "" }}
+        fields={[{ label: "Message", key: "value", placeholder: "custom message" }]}
+      />
     </Modal>
   );
 }
@@ -260,7 +295,7 @@ export function ContextMenu({ controller, dialog, screen }: Props<"menu">) {
     setHoverTracking(true);
     return () => setHoverTracking(false);
   }, []);
-  useInput((_input, key) => {
+  useInput((input, key) => {
     const step = (d: number) => {
       let i = active;
       for (let n = 0; n < dialog.items.length; n++) {
@@ -270,9 +305,9 @@ export function ContextMenu({ controller, dialog, screen }: Props<"menu">) {
       setActive(i);
     };
     if (key.escape) close();
-    else if (key.upArrow) step(-1);
-    else if (key.downArrow) step(1);
-    else if (key.return) {
+    else if (key.upArrow || (key.tab && key.shift)) step(-1);
+    else if (key.downArrow || key.tab) step(1);
+    else if (key.return || input === " ") {
       const item = dialog.items[active];
       if (item && !item.disabled) pick(item);
     }

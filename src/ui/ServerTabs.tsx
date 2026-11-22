@@ -34,31 +34,39 @@ function Ping({ session }: { session: Session }) {
   if (!info || status !== "connected") return null;
   const loss = info.packetLossPercent;
   return (
-    <Text color={info.pingMs > 150 || loss > 5 ? colors.away : "gray"}>
-      {` ping ${Math.round(info.pingMs)}ms loss ${loss.toFixed(loss < 10 ? 1 : 0)}% `}
-    </Text>
+    <Box flexShrink={1} overflow="hidden">
+      <Text color={info.pingMs > 150 || loss > 5 ? colors.away : "gray"} wrap="truncate-end">
+        {` ping ${Math.round(info.pingMs)}ms loss ${loss.toFixed(loss < 10 ? 1 : 0)}% `}
+      </Text>
+    </Box>
   );
 }
 
-export function ServerTabs({ controller, width }: { controller: Controller; width: number }) {
+export type TopBarAction = "plus" | "settings" | "help";
+
+export function ServerTabs({ controller, width, focusedAction }: { controller: Controller; width: number; focusedAction?: TopBarAction | null }) {
   const ids = useStore(controller.store, (s) => s.sessionIds);
   const activeId = useStore(controller.store, (s) => s.activeId);
   const active = controller.session(activeId);
   return (
     <Box width={width} height={1} overflow="hidden">
-      <Text bold color={colors.accent}>
-        {" tuimspeak "}
-      </Text>
-      {ids.map((id, i) => {
-        const session = controller.session(id);
-        return session ? <SessionTab key={id} controller={controller} session={session} active={id === activeId} index={i} /> : null;
-      })}
-      <Button label="+" onClick={() => controller.openDialog({ kind: "connect" })} />
+      <Box flexShrink={0}>
+        <Text bold color={colors.accent} wrap="truncate-end">
+          {" tuimspeak "}
+        </Text>
+      </Box>
+      <Box flexShrink={1} overflow="hidden">
+        {ids.map((id, i) => {
+          const session = controller.session(id);
+          return session ? <SessionTab key={id} controller={controller} session={session} active={id === activeId} index={i} /> : null;
+        })}
+      </Box>
+      <Button label="+" focused={focusedAction === "plus"} onClick={() => controller.openDialog({ kind: "connect" })} />
       <Box flexGrow={1} />
       {active && <Ping key={active.id} session={active} />}
-      <Button label="Settings" onClick={() => controller.openDialog({ kind: "settings" })} />
+      <Button label="Settings" focused={focusedAction === "settings"} onClick={() => controller.openDialog({ kind: "settings" })} />
       <Text> </Text>
-      <Button label="?" onClick={() => controller.openDialog({ kind: "help" })} />
+      <Button label="?" focused={focusedAction === "help"} onClick={() => controller.openDialog({ kind: "help" })} />
     </Box>
   );
 }

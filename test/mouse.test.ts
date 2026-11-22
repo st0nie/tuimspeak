@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { InputSplitter, decodeSgrMouse } from "../src/mouse/sgr.ts";
 import { MouseBus, type Rect, type RegionHandlers } from "../src/mouse/bus.ts";
+import { ALT_SCREEN_HOME, installAlternateScreenHome, withAlternateScreenHome } from "../src/mouse/terminal.ts";
 import type { MouseEvent } from "../src/mouse/sgr.ts";
 
 const press = (x: number, y: number, button: "left" | "right" = "left"): MouseEvent => ({
@@ -179,5 +180,28 @@ describe("MouseBus drag (§6.4)", () => {
     bus.dispatch({ kind: "move", button: "left", x: 3, y: 9, shift: false, alt: false, ctrl: false });
     bus.dispatch(release(3, 9));
     expect(got).toEqual(["press 1", "drag 7", "release 7"]);
+  });
+});
+
+describe("installAlternateScreenHome (§6.1)", () => {
+  test("clears and homes the alternate screen after ?1049h for string and binary writes", () => {
+    expect(withAlternateScreenHome("\x1b[?1049h\x1b[?25l")).toBe(`${ALT_SCREEN_HOME}\x1b[?25l`);
+    expect(withAlternateScreenHome(`${ALT_SCREEN_HOME}\x1b[?25l`)).toBe(`${ALT_SCREEN_HOME}\x1b[?25l`);
+    expect(withAlternateScreenHome("plain text")).toBe("plain text");
+    const buf = withAlternateScreenHome(Buffer.from("\x1b[?1049h"));
+    expect(Buffer.from(buf as Uint8Array).toString("utf8")).toBe(ALT_SCREEN_HOME);
+
+    const written: string[] = [];
+    const fakeStdout = {
+      write(chunk: string | Uint8Array) {
+        written.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+        return true;
+      },
+    } as Pick<NodeJS.WriteStream, "write">;
+    const restore = installAlternateScreenHome(fakeStdout);
+    fakeStdout.write("\x1b[?1049h");
+    restore();
+    fakeStdout.write("\x1b[?1049h");
+    expect(written).toEqual([ALT_SCREEN_HOME, "\x1b[?1049h"]);
   });
 });

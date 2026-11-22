@@ -269,7 +269,7 @@ offers no events, so tuimspeak has its own layer.
 
 | Sequence | Purpose |
 | --- | --- |
-| `CSI ?1049h` | Alternate screen (Ink's `alternateScreen`) |
+| `CSI ?1049h` + `CSI 2J CSI H` | Alternate screen, cleared and homed to `(1,1)` after saving the main-screen cursor |
 | `CSI ?1000h` | Button press and release |
 | `CSI ?1002h` | Motion while a button is held (drag, release anywhere) |
 | `CSI ?1006h` | SGR coordinates: no 223-column limit, releases name their button |
@@ -346,7 +346,7 @@ tuimspeak there is keyboard-only.
 └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Below 80 columns the info pane is hidden; below 40×12 a "too small" notice
+Single-line bars (`ServerTabs`, `StatusBar`) clip to `columns` so overflow never wraps and scrolls the alternate screen. Without an open session, the welcome screen focuses `[ Connect to a server ]` (`Enter` opens the connect dialog; arrows/Tab reach `[Settings]` and `[?]`). Below 80 columns the info pane is hidden; below 40×12 a "too small" notice
 replaces everything. A poke or notice takes one row above the status bar.
 
 ### 7.2 Channel tree
@@ -373,7 +373,7 @@ Tabs: Server (server chat, server log, pokes, errors), Channel (titled with
 our channel's name), and one per private partner, opened by a message or a
 double-click and closable with `×` or Ctrl+W. Unread counts show on inactive
 tabs. BBCode `[b] [i] [u] [s] [color] [url]` is rendered; links are OSC 8.
-The input places the real terminal cursor at the caret so IME composition
+Text inputs draw an inline inverted caret and place the real terminal cursor at the caret after layout so the caret is always visible and IME composition
 appears in place. PgUp/PgDn and the wheel scroll; new messages follow the
 bottom unless scrolled up.
 
@@ -388,9 +388,11 @@ Right-click (or `m`) opens a context menu for the row under the pointer:
 | Other client | Private chat, Poke, Volume, Mute locally, Whisper to (toggle), Allow/Block whispers, Move to my channel, Move to…, Kick from channel, Kick from server, Ban, Server groups, Channel group, Send offline message, Copy nickname |
 | Own client | Change nickname, Set away / Clear away, Mute microphone, Copy nickname |
 
-Dialogs are modal (§6.3), close on Esc or a click outside, and move between
-fields with Tab or a click. Lists inside dialogs scroll with the wheel and
-PgUp/PgDn.
+Dialogs are modal (§6.3), close on Esc or a click outside, move between rows
+with Tab/Shift+Tab or ↑/↓, move across controls on the same row (bookmarks,
+choices, toggles, action buttons) with ←/→, and toggle or activate focused
+controls with Space or Enter (as well as clicking). Lists inside dialogs scroll
+with the wheel and PgUp/PgDn.
 
 ### 7.5 Interactions
 
@@ -411,9 +413,10 @@ PgUp/PgDn.
 | Talk | Hold `[Hold to talk]` | Ctrl+T (toggle mode), `pttKey` (hold, §8.2) |
 | Whisper | Hold `[Whisper n]`; click locks | `whisperKey` (hold) |
 | Settings | `[Settings]` | F2 |
-| Connect | `[+]` | Ctrl+N |
+| Connect | `[+]` / `[ Connect to a server ]` | Ctrl+N (or Enter on welcome) |
+| Reconnect | `[ Reconnect ]` | `r` in the tree when disconnected |
 | Help | `[?]` | F1 or `?` |
-| Quit | | Ctrl+Q (or `q` in the tree) |
+| Quit | | Ctrl+Q (or `q` in the tree / welcome) |
 
 Legacy terminals send the same byte for Ctrl+M and Enter, Ctrl+I and Tab,
 Ctrl+H and Backspace, so those are never used as shortcuts. While the chat

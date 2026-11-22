@@ -11,10 +11,13 @@ const METER_CELLS = 8;
 /** Square-root scale so quiet speech still moves the meter; 0.3 RMS fills it. */
 const meterPos = (rms: number) => (Math.sqrt(rms) / Math.sqrt(0.3)) * METER_CELLS;
 
-function Meter({ level, threshold, talking }: { level: number; threshold: number; talking: boolean }) {
+function Meter({ level, threshold, talking, ascii }: { level: number; threshold: number; talking: boolean; ascii: boolean }) {
   const filled = Math.min(METER_CELLS, Math.round(meterPos(level)));
   const mark = Math.min(METER_CELLS - 1, Math.round(meterPos(threshold)));
-  const cells = Array.from({ length: METER_CELLS }, (_, i) => (i < filled ? "▮" : i === mark ? "┊" : "▯")).join("");
+  const on = ascii ? "#" : "▮";
+  const line = ascii ? "|" : "┊";
+  const off = ascii ? "-" : "▯";
+  const cells = Array.from({ length: METER_CELLS }, (_, i) => (i < filled ? on : i === mark ? line : off)).join("");
   return <Text color={talking ? colors.talking : colors.dim}>{cells}</Text>;
 }
 
@@ -59,6 +62,8 @@ export function StatusBar({ controller, width }: { controller: Controller; width
       : s.audio.state === "starting"
         ? "Starting audio..."
         : `Audio: ${s.audio.message || "unavailable"}`;
+  const ascii = s.config.icons === "ascii";
+  const sep = ascii ? " | " : " │ ";
   return (
     <Box width={width} height={1} overflow="hidden">
       <Box flexShrink={0}>
@@ -82,7 +87,7 @@ export function StatusBar({ controller, width }: { controller: Controller; width
         {s.config.talkMode === "vad" ? (
           <>
             <Text color="gray">VAD </Text>
-            <Meter level={s.level} threshold={s.config.vadThreshold} talking={s.talking} />
+            <Meter level={s.level} threshold={s.config.vadThreshold} talking={s.talking} ascii={ascii} />
           </>
         ) : s.config.talkMode === "ptt" ? (
           <Text color={s.talking ? colors.talking : "gray"}>{s.kittyKeys ? `PTT: hold ${key}` : `PTT: ${key} toggles`}</Text>
@@ -91,15 +96,15 @@ export function StatusBar({ controller, width }: { controller: Controller; width
         )}
         {session && (
           <>
-            <Text color="gray"> │ </Text>
+            <Text color="gray">{sep}</Text>
             <WhisperButton key={`w${session.id}`} controller={controller} session={session} />
             <Text> </Text>
             <AwayButton key={session.id} controller={controller} session={session} />
           </>
         )}
-        <Text color="gray"> │ </Text>
+        <Text color="gray">{sep}</Text>
       </Box>
-      <Box flexShrink={1} flexGrow={1}>
+      <Box flexShrink={1} flexGrow={1} overflow="hidden">
         <Text color={audioReady ? "gray" : colors.error} wrap="truncate-end">
           {audioText}
         </Text>

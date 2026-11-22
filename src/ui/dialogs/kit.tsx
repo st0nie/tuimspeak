@@ -1,8 +1,8 @@
-import { useRef, useState, type ReactNode } from "react";
-import { Box, Text, useBoxMetrics, useInput, type DOMElement } from "ink";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Box, Text, useBoxMetrics, useInput, type DOMElement, type Key } from "ink";
 import { useMouseRegion } from "../../mouse/react.tsx";
 import { Button } from "../Button.tsx";
-import { TextInput } from "../TextInput.tsx";
+import { LayoutEpochContext, TextInput } from "../TextInput.tsx";
 import { colors, fit, stringWidth } from "../theme.ts";
 
 /** Building blocks shared by the dialogs (architecture §7.4). */
@@ -15,7 +15,8 @@ export interface Screen {
 /**
  * A centered dialog box. It is placed at whole-cell coordinates from its
  * measured height: flex centering can land on half cells, where Ink 8 drops
- * nested text.
+ * nested text. Publishes its coordinates via `LayoutEpochContext` so focused
+ * inputs reposition the real terminal cursor once centered.
  */
 export function Modal({ title, width, screen, onClose, children }: { title: string; width: number; screen: Screen; onClose: () => void; children: ReactNode }) {
   const ref = useRef<DOMElement>(null);
@@ -25,13 +26,16 @@ export function Modal({ title, width, screen, onClose, children }: { title: stri
   const w = Math.min(width, screen.columns - 2);
   const left = Math.max(0, Math.floor((screen.columns - w) / 2));
   const top = hasMeasured ? Math.max(0, Math.floor((screen.rows - height) / 2)) : Math.floor(screen.rows / 4);
+  const epoch = `${left},${top},${w},${height},${hasMeasured ? 1 : 0}`;
   return (
-    <Box ref={ref} position="absolute" left={left} top={top} flexDirection="column" width={w} borderStyle="round" borderColor={colors.accent} backgroundColor="black" paddingX={1}>
-      <Text bold color={colors.accent} wrap="truncate-end">
-        {title}
-      </Text>
-      {children}
-    </Box>
+    <LayoutEpochContext.Provider value={epoch}>
+      <Box ref={ref} position="absolute" left={left} top={top} flexDirection="column" width={w} borderStyle="round" borderColor={colors.accent} backgroundColor="black" paddingX={1}>
+        <Text bold color={colors.accent} wrap="truncate-end">
+          {title}
+        </Text>
+        {children}
+      </Box>
+    </LayoutEpochContext.Provider>
   );
 }
 
@@ -53,7 +57,75 @@ export interface Field {
   placeholder?: string;
 }
 
-/** Text fields; Tab/↑↓ or a click move between them, Enter on the last submits, Esc cancels. */
+export interface FormItem {
+  key: string;
+  render: (focused: boolean) => ReactNode;
+  onActivate: () => void;
+  onSpace?: () => void;
+}
+
+export interface FormRow {
+  key: string;
+  label?: string;
+  gap?: number;
+  marginTop?: number;
+  marginBottom?: number;
+  trailing?: ReactNode;
+  onStep?: (delta: -1 | 1) => void;
+  items: FormItem[];
+}
+
+function stepFormFocus(
+  row: number,
+  col: number,
+  rowLengths: number[],
+  key: Key,
+  isFieldRow: boolean,
+  rowStep?: (delta: -1 | 1) => void,
+): [number, number] | null {
+  const total = rowLengths.length;
+  if (total === 0) return null;
+  if (key.upArrow) return [(row + total - 1) % total, 0];
+  if (key.downArrow) return [(row + 1) % total, 0];
+  if (key.tab) {
+    const items = rowLengths[row] ?? 1;
+    if (key.shift) {
+      if (col > 0) return [row, col - 1];
+      const prevRow = (row + total - 1) % total;
+      return [prevRow, Math.max(0, (rowLengths[prevRow] ?? 1) - 1)];
+    }
+    if (col + 1 < items) return [row, col + 1];
+    return [(row + 1) % total, 0];
+  }
+  if (!isFieldRow && (key.leftArrow || key.rightArrow)) {
+    const delta = key.leftArrow ? -1 : 1;
+    if (rowStep) {
+      rowStep(delta);
+      return null;
+    }
+    const items = rowLengths[row] ?? 1;
+    if (items > 1) return [row, (col + delta + items) % items];
+  }
+  return null;
+}
+
+function FormExtraRow({ row, focusedRow, focusedCol, labelWidth }: { row: FormRow; focusedRow: boolean; focusedCol: number; labelWidth: number }) {
+  return (
+    <Box marginTop={row.marginTop} marginBottom={row.marginBottom} columnGap={row.gap ?? 1} flexWrap="wrap">
+      {row.label !== undefined && <Text color={focusedRow ? colors.accent : "gray"}>{row.label.padEnd(labelWidth)}</Text>}
+      {row.items.map((item, c) => (
+        <Box key={item.key}>{item.render(focusedRow && c === focusedCol)}</Box>
+      ))}
+      {row.trailing}
+    </Box>
+  );
+}
+
+/**
+ * Form with optional interactive rows before/after text fields and a Submit/Cancel
+ * action row: ↑/↓/Tab/Shift+Tab move between rows, ←/→ moves across items on a row,
+ * Space/Enter toggles or activates controls, Esc cancels.
+ */
 export function Form({
   fields,
   initial,
@@ -61,6 +133,9 @@ export function Form({
   submitLabel,
   onSubmit,
   onCancel,
+  header,
+  beforeRows = [],
+  afterRows = [],
   extra,
   active = true,
 }: {
@@ -68,45 +143,143 @@ export function Form({
   initial: Record<string, string>;
   width: number;
   submitLabel: string;
-  onSubmit: (values: Record<string, string>) => void;
+  /** Return a field key to move focus back to that field instead of closing. */
+  onSubmit: (values: Record<string, string>) => string | void;
   onCancel: () => void;
+  header?: ReactNode;
+  beforeRows?: FormRow[];
+  afterRows?: FormRow[];
   extra?: ReactNode;
   active?: boolean;
 }) {
   const [values, setValues] = useState(initial);
-  const [focus, setFocus] = useState(0);
-  const labelWidth = Math.max(...fields.map((f) => stringWidth(f.label))) + 1;
+  const fieldOffset = beforeRows.length;
+  const afterOffset = fieldOffset + fields.length;
+  const actionRowIndex = afterOffset + afterRows.length;
+  const [pos, setPos] = useState<[number, number]>([fields.length > 0 ? fieldOffset : 0, 0]);
+
+  const rowLengths = [...beforeRows.map((r) => Math.max(1, r.items.length)), ...fields.map(() => 1), ...afterRows.map((r) => Math.max(1, r.items.length)), 2];
+  const totalRows = rowLengths.length;
+  const row = Math.min(pos[0], totalRows - 1);
+  const col = Math.min(pos[1], (rowLengths[row] ?? 1) - 1);
+  const isFieldRow = row >= fieldOffset && row < afterOffset;
+
+  const allLabels = [
+    ...beforeRows.flatMap((r) => (r.label ? [r.label] : [])),
+    ...fields.map((f) => f.label),
+    ...afterRows.flatMap((r) => (r.label ? [r.label] : [])),
+  ];
+  const labelWidth = (allLabels.length > 0 ? Math.max(...allLabels.map((l) => stringWidth(l))) : 0) + 1;
+
+  const triggerSubmit = () => {
+    const targetField = onSubmit(values);
+    if (typeof targetField === "string") {
+      const idx = fields.findIndex((f) => f.key === targetField);
+      if (idx >= 0) setPos([fieldOffset + idx, 0]);
+    }
+  };
+
+  const activeExtraRow = row < fieldOffset ? beforeRows[row] : row >= afterOffset && row < actionRowIndex ? afterRows[row - afterOffset] : undefined;
+
   useInput(
-    (_input, key) => {
-      if (key.escape) onCancel();
-      else if (key.tab || key.downArrow) setFocus((f) => (key.shift ? (f + fields.length - 1) % fields.length : (f + 1) % fields.length));
-      else if (key.upArrow) setFocus((f) => (f + fields.length - 1) % fields.length);
+    (input, key) => {
+      if (key.escape) return onCancel();
+      const stepped = stepFormFocus(row, col, rowLengths, key, isFieldRow, activeExtraRow?.onStep);
+      if (stepped) return setPos(stepped);
+      if (isFieldRow) return;
+      if (row === actionRowIndex && (key.return || input === " ")) {
+        if (col === 0) triggerSubmit();
+        else onCancel();
+        return;
+      }
+      const item = activeExtraRow?.items[col];
+      if (!item) return;
+      if (key.return) item.onActivate();
+      else if (input === " ") (item.onSpace ?? item.onActivate)();
     },
     { isActive: active },
   );
+
   return (
     <Box flexDirection="column">
-      {fields.map((f, i) => (
-        <Box key={f.key}>
-          <Text color={i === focus ? colors.accent : "gray"}>{f.label.padEnd(labelWidth)}</Text>
-          <TextInput
-            value={values[f.key] ?? ""}
-            width={Math.max(4, width - labelWidth)}
-            focused={active && i === focus}
-            mask={f.mask}
-            placeholder={f.placeholder}
-            layer="modal"
-            onFocusRequest={() => setFocus(i)}
-            onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))}
-            onSubmit={() => (i < fields.length - 1 ? setFocus(i + 1) : onSubmit(values))}
-          />
-        </Box>
+      {header}
+      {beforeRows.map((r, i) => (
+        <FormExtraRow key={r.key} row={r} focusedRow={active && row === i} focusedCol={col} labelWidth={labelWidth} />
       ))}
+      {fields.map((f, i) => {
+        const r = fieldOffset + i;
+        const focused = active && row === r;
+        return (
+          <Box key={f.key}>
+            <Text color={focused ? colors.accent : "gray"}>{f.label.padEnd(labelWidth)}</Text>
+            <TextInput
+              value={values[f.key] ?? ""}
+              width={Math.max(4, width - labelWidth)}
+              focused={focused}
+              mask={f.mask}
+              placeholder={f.placeholder}
+              layer="modal"
+              onFocusRequest={() => setPos([r, 0])}
+              onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))}
+              onSubmit={() => (i < fields.length - 1 ? setPos([r + 1, 0]) : triggerSubmit())}
+            />
+          </Box>
+        );
+      })}
+      {afterRows.map((r, i) => {
+        const idx = afterOffset + i;
+        return <FormExtraRow key={r.key} row={r} focusedRow={active && row === idx} focusedCol={col} labelWidth={labelWidth} />;
+      })}
       {extra}
       <Box marginTop={1} gap={2}>
-        <Button label={` ${submitLabel} `} color={colors.accent} layer="modal" onClick={() => onSubmit(values)} />
-        <Button label=" Cancel " layer="modal" onClick={onCancel} />
+        <Button label={` ${submitLabel} `} color={colors.accent} focused={active && row === actionRowIndex && col === 0} layer="modal" onClick={triggerSubmit} />
+        <Button label=" Cancel " focused={active && row === actionRowIndex && col === 1} layer="modal" onClick={onCancel} />
       </Box>
+    </Box>
+  );
+}
+
+export interface ActionItem {
+  label: string;
+  color?: string;
+  disabled?: boolean;
+  onTrigger: () => void;
+}
+
+/** Keyboard-navigable row of modal buttons (←/→ moves across enabled buttons, Enter/Space activates). */
+export function ActionBar({ actions, focused, gap = 2, marginTop = 1 }: { actions: ActionItem[]; focused: boolean; gap?: number; marginTop?: number }) {
+  const firstEnabled = Math.max(0, actions.findIndex((a) => !a.disabled));
+  const [col, setCol] = useState(firstEnabled);
+  const current = !actions[col] || actions[col]!.disabled ? firstEnabled : col;
+
+  useEffect(() => {
+    if (actions[col]?.disabled) setCol(firstEnabled);
+  }, [actions, col, firstEnabled]);
+
+  useInput(
+    (input, key) => {
+      if (actions.length === 0) return;
+      if (key.leftArrow || key.rightArrow) {
+        const d = key.leftArrow ? -1 : 1;
+        let next = current;
+        for (let n = 0; n < actions.length; n++) {
+          next = (next + d + actions.length) % actions.length;
+          if (!actions[next]!.disabled) break;
+        }
+        setCol(next);
+      } else if (key.return || input === " ") {
+        const item = actions[current];
+        if (item && !item.disabled) item.onTrigger();
+      }
+    },
+    { isActive: focused },
+  );
+
+  return (
+    <Box marginTop={marginTop} columnGap={gap} flexWrap="wrap">
+      {actions.map((a, i) => (
+        <Button key={a.label} layer="modal" label={a.label} color={a.color} disabled={a.disabled} focused={focused && i === current && !a.disabled} onClick={a.onTrigger} />
+      ))}
     </Box>
   );
 }
@@ -245,19 +418,21 @@ export function Slider({
   return (
     <Box>
       <Box ref={ref}>
-        <Text color={focused ? colors.accent : undefined}>{cells}</Text>
+        <Text color={focused ? colors.accent : undefined} bold={focused}>
+          {cells}
+        </Text>
       </Box>
-      <Text> {label.padStart(6)}</Text>
+      <Text color={focused ? colors.accent : undefined}> {label.padStart(6)}</Text>
     </Box>
   );
 }
 
-export function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) {
+export function Toggle({ label, value, focused, onChange }: { label: string; value: boolean; focused?: boolean; onChange: (value: boolean) => void }) {
   const ref = useRef<DOMElement>(null);
   useMouseRegion(ref, { onClick: () => onChange(!value) }, { layer: "modal" });
   return (
     <Box ref={ref} flexShrink={0}>
-      <Text>
+      <Text inverse={Boolean(focused)} bold={Boolean(focused)} color={focused ? colors.accent : undefined}>
         [<Text color={colors.accent}>{value ? "x" : " "}</Text>] {label}
       </Text>
     </Box>
@@ -265,14 +440,30 @@ export function Toggle({ label, value, onChange }: { label: string; value: boole
 }
 
 /** One of several options, as a row of buttons. */
-export function Choice<T extends string>({ options, value, onChange }: { options: { value: T; label: string }[]; value: T; onChange: (value: T) => void }) {
+export function Choice<T extends string>({
+  options,
+  value,
+  focused,
+  onChange,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  focused?: boolean;
+  onChange: (value: T) => void;
+}) {
   return (
-    <Box gap={1} flexWrap="wrap">
+    <Box columnGap={1} flexWrap="wrap">
       {options.map((o) => (
-        <Button key={o.value} layer="modal" label={` ${o.label} `} active={o.value === value} onClick={() => onChange(o.value)} />
+        <Button key={o.value} layer="modal" label={` ${o.label} `} active={o.value === value} focused={Boolean(focused && o.value === value)} onClick={() => onChange(o.value)} />
       ))}
     </Box>
   );
+}
+
+export function stepOption<T>(options: readonly T[], current: T, delta: -1 | 1): T {
+  if (options.length === 0) return current;
+  const idx = Math.max(0, options.indexOf(current));
+  return options[(idx + delta + options.length) % options.length]!;
 }
 
 export function formatBytes(n: number): string {

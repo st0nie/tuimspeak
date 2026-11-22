@@ -8,7 +8,7 @@ import { buildTree } from "../../state/tree.ts";
 import { Button } from "../Button.tsx";
 import { colors, fit } from "../theme.ts";
 import { moveClient } from "../menus.ts";
-import { Choice, Form, Hint, ListBox, Modal, Row, innerWidth, formatDuration, type Screen } from "./kit.tsx";
+import { ActionBar, Choice, Form, Hint, ListBox, Modal, Row, innerWidth, formatDuration, stepOption, type Screen } from "./kit.tsx";
 import { TextInput } from "../TextInput.tsx";
 
 type Props<K extends Dialog["kind"]> = { controller: Controller; dialog: Extract<Dialog, { kind: K }>; screen: Screen };
@@ -22,10 +22,15 @@ function useSession<T>(controller: Controller, sessionId: string, select: (s: Se
 
 function Gone({ controller, screen, title }: { controller: Controller; screen: Screen; title: string }) {
   const close = () => controller.closeDialog();
+  useInput((input, key) => {
+    if (key.escape || key.return || input === " ") close();
+  });
   return (
     <Modal title={title} width={50} screen={screen} onClose={close}>
       <Text color="gray">Not available any more.</Text>
-      <Button label=" Close " layer="modal" onClick={close} />
+      <Box marginTop={1}>
+        <Button label=" Close " focused color={colors.accent} layer="modal" onClick={close} />
+      </Box>
     </Modal>
   );
 }
@@ -62,6 +67,8 @@ const BAN_DURATIONS: { value: string; label: string; secs: number }[] = [
   { value: "0", label: "Permanent", secs: 0 },
 ];
 
+const BAN_DURATION_VALUES = BAN_DURATIONS.map((d) => d.value);
+
 export function BanDialog({ controller, dialog, screen }: Props<"ban">) {
   const [session, client] = useSession(controller, dialog.sessionId, (s) => s.snapshot?.clients.find((c) => c.id === dialog.clientId));
   const [duration, setDuration] = useState("3600");
@@ -69,14 +76,25 @@ export function BanDialog({ controller, dialog, screen }: Props<"ban">) {
   if (!session || !client) return <Gone controller={controller} screen={screen} title="Ban" />;
   return (
     <Modal title={`Ban ${client.name}`} width={64} screen={screen} onClose={close}>
-      <Box marginBottom={1}>
-        <Text color="gray">Duration </Text>
-        <Choice options={BAN_DURATIONS} value={duration} onChange={setDuration} />
-      </Box>
       <Form
         width={innerWidth(64, screen)}
         submitLabel="Ban"
         onCancel={close}
+        beforeRows={[
+          {
+            key: "duration",
+            label: "Duration",
+            marginBottom: 1,
+            onStep: (d) => setDuration(stepOption(BAN_DURATION_VALUES, duration, d)),
+            items: [
+              {
+                key: "choice",
+                render: (f) => <Choice options={BAN_DURATIONS} value={duration} focused={f} onChange={setDuration} />,
+                onActivate: () => setDuration(stepOption(BAN_DURATION_VALUES, duration, 1)),
+              },
+            ],
+          },
+        ]}
         initial={{ reason: "" }}
         fields={[{ label: "Reason", key: "reason", placeholder: "optional" }]}
         onSubmit={(v) => {
@@ -91,6 +109,7 @@ export function BanDialog({ controller, dialog, screen }: Props<"ban">) {
 export function BansDialog({ controller, dialog, screen }: Props<"bans">) {
   const [session, bans] = useSession(controller, dialog.sessionId, (s) => s.bans);
   const [selected, setSelected] = useState(0);
+  const [barFocused, setBarFocused] = useState(false);
   const close = () => controller.closeDialog();
   const width = 90;
   const inner = innerWidth(width, screen);
@@ -99,6 +118,7 @@ export function BansDialog({ controller, dialog, screen }: Props<"bans">) {
   const remove = () => current && session?.deleteBan(current.banId);
   useInput((input, key) => {
     if (key.escape) close();
+    else if (key.tab) setBarFocused((b) => !b);
     else if (key.delete || input === "d") remove();
     else if (input === "r") session?.requestBans();
   });
@@ -112,6 +132,7 @@ export function BansDialog({ controller, dialog, screen }: Props<"bans">) {
         items={list}
         selected={Math.min(selected, Math.max(0, list.length - 1))}
         onSelect={setSelected}
+        focused={!barFocused}
         height={listHeight(screen, 12)}
         width={inner}
         empty={bans === null ? "Loading..." : "No bans"}
@@ -121,30 +142,31 @@ export function BansDialog({ controller, dialog, screen }: Props<"bans">) {
           return <Row selected={sel} text={fit(`${fit(target, 27)} ${fit(b.reason || "-", 25)} ${fit(expires, 13)} ${b.invokerName}`, w)} />;
         }}
       />
-      <Box marginTop={1} gap={2}>
-        <Button layer="modal" label=" Delete " onClick={remove} disabled={!current} />
-        <Button
-          layer="modal"
-          label=" Delete all "
-          color={colors.error}
-          disabled={list.length === 0}
-          onClick={() =>
-            controller.openDialog({
-              kind: "confirm",
-              title: "Delete all bans",
-              message: `Delete all ${list.length} bans on this server?`,
-              confirmLabel: "Delete all",
-              onConfirm: () => {
-                session.deleteAllBans();
-                controller.openDialog({ kind: "bans", sessionId: session.id });
-              },
-            })
-          }
-        />
-        <Button layer="modal" label=" Refresh " onClick={() => session.requestBans()} />
-        <Button layer="modal" label=" Close " color={colors.accent} onClick={close} />
-      </Box>
-      <Hint>d/Del delete · r refresh · Esc close</Hint>
+      <ActionBar
+        focused={barFocused}
+        actions={[
+          { label: " Delete ", disabled: !current, onTrigger: () => remove() },
+          {
+            label: " Delete all ",
+            color: colors.error,
+            disabled: list.length === 0,
+            onTrigger: () =>
+              controller.openDialog({
+                kind: "confirm",
+                title: "Delete all bans",
+                message: `Delete all ${list.length} bans on this server?`,
+                confirmLabel: "Delete all",
+                onConfirm: () => {
+                  session.deleteAllBans();
+                  controller.openDialog({ kind: "bans", sessionId: session.id });
+                },
+              }),
+          },
+          { label: " Refresh ", onTrigger: () => session.requestBans() },
+          { label: " Close ", color: colors.accent, onTrigger: close },
+        ]}
+      />
+      <Hint>Tab buttons · d/Del delete · r refresh · Esc close</Hint>
     </Modal>
   );
 }
@@ -152,6 +174,7 @@ export function BansDialog({ controller, dialog, screen }: Props<"bans">) {
 export function ComplaintsDialog({ controller, dialog, screen }: Props<"complaints">) {
   const [session, complaints] = useSession(controller, dialog.sessionId, (s) => s.complaints);
   const [selected, setSelected] = useState(0);
+  const [barFocused, setBarFocused] = useState(false);
   const close = () => controller.closeDialog();
   const width = 90;
   const inner = innerWidth(width, screen);
@@ -160,6 +183,7 @@ export function ComplaintsDialog({ controller, dialog, screen }: Props<"complain
   const remove = () => current && session?.deleteComplaint(current.targetClientDbId, current.fromClientDbId);
   useInput((input, key) => {
     if (key.escape) close();
+    else if (key.tab) setBarFocused((b) => !b);
     else if (key.delete || input === "d") remove();
   });
   if (!session) return <Gone controller={controller} screen={screen} title="Complaints" />;
@@ -169,16 +193,20 @@ export function ComplaintsDialog({ controller, dialog, screen }: Props<"complain
         items={list}
         selected={Math.min(selected, Math.max(0, list.length - 1))}
         onSelect={setSelected}
+        focused={!barFocused}
         height={listHeight(screen, 11)}
         width={inner}
         empty={complaints === null ? "Loading..." : "No complaints"}
         render={(c, sel, w) => <Row selected={sel} text={fit(`${fit(c.targetName, 20)} ← ${fit(c.fromName, 18)} ${c.message}`, w)} />}
       />
-      <Box marginTop={1} gap={2}>
-        <Button layer="modal" label=" Delete " onClick={remove} disabled={!current} />
-        <Button layer="modal" label=" Close " color={colors.accent} onClick={close} />
-      </Box>
-      <Hint>d/Del delete · Esc close</Hint>
+      <ActionBar
+        focused={barFocused}
+        actions={[
+          { label: " Delete ", disabled: !current, onTrigger: () => remove() },
+          { label: " Close ", color: colors.accent, onTrigger: close },
+        ]}
+      />
+      <Hint>Tab buttons · d/Del delete · Esc close</Hint>
     </Modal>
   );
 }
@@ -189,6 +217,7 @@ export function ServerGroupsDialog({ controller, dialog, screen }: Props<"server
   const [session, serverGroups] = useSession(controller, dialog.sessionId, (s) => s.serverGroups);
   const [, client] = useSession(controller, dialog.sessionId, (s) => s.snapshot?.clients.find((c) => c.id === dialog.clientId));
   const [selected, setSelected] = useState(0);
+  const [barFocused, setBarFocused] = useState(false);
   const close = () => controller.closeDialog();
   const width = 60;
   const groups = serverGroups ?? [];
@@ -199,7 +228,8 @@ export function ServerGroupsDialog({ controller, dialog, screen }: Props<"server
   };
   useInput((input, key) => {
     if (key.escape) close();
-    else if (input === " ") toggle(selected);
+    else if (key.tab) setBarFocused((b) => !b);
+    else if (!barFocused && input === " ") toggle(selected);
   });
   if (!session || !client) return <Gone controller={controller} screen={screen} title="Server groups" />;
   return (
@@ -209,16 +239,20 @@ export function ServerGroupsDialog({ controller, dialog, screen }: Props<"server
         selected={Math.min(selected, Math.max(0, groups.length - 1))}
         onSelect={setSelected}
         onActivate={toggle}
+        focused={!barFocused}
         height={listHeight(screen, 10)}
         width={innerWidth(width, screen)}
         empty={serverGroups === null ? "Loading..." : "No groups"}
         render={(g, sel, w) => <Row selected={sel} text={fit(`[${client.serverGroups.includes(g.id) ? "x" : " "}] ${g.name}`, w)} />}
       />
-      <Box marginTop={1} gap={2}>
-        <Button layer="modal" label=" Toggle " onClick={() => toggle(selected)} />
-        <Button layer="modal" label=" Close " color={colors.accent} onClick={close} />
-      </Box>
-      <Hint>Double-click, Enter or Space toggles membership · the tree updates when the server confirms</Hint>
+      <ActionBar
+        focused={barFocused}
+        actions={[
+          { label: " Toggle ", disabled: groups.length === 0, onTrigger: () => toggle(selected) },
+          { label: " Close ", color: colors.accent, onTrigger: close },
+        ]}
+      />
+      <Hint>Enter/Space toggles membership · Tab buttons · Esc close</Hint>
     </Modal>
   );
 }
@@ -227,6 +261,7 @@ export function ChannelGroupDialog({ controller, dialog, screen }: Props<"channe
   const [session, channelGroups] = useSession(controller, dialog.sessionId, (s) => s.channelGroups);
   const [, client] = useSession(controller, dialog.sessionId, (s) => s.snapshot?.clients.find((c) => c.id === dialog.clientId));
   const [selected, setSelected] = useState(0);
+  const [barFocused, setBarFocused] = useState(false);
   const close = () => controller.closeDialog();
   const width = 60;
   const groups = channelGroups ?? [];
@@ -235,8 +270,10 @@ export function ChannelGroupDialog({ controller, dialog, screen }: Props<"channe
     if (!g || !client || !session) return;
     session.setChannelGroup(g.id, client.channel, client.databaseId);
   };
-  useInput((_input, key) => {
+  useInput((input, key) => {
     if (key.escape) close();
+    else if (key.tab) setBarFocused((b) => !b);
+    else if (!barFocused && input === " ") choose(selected);
   });
   if (!session || !client) return <Gone controller={controller} screen={screen} title="Channel group" />;
   return (
@@ -246,16 +283,20 @@ export function ChannelGroupDialog({ controller, dialog, screen }: Props<"channe
         selected={Math.min(selected, Math.max(0, groups.length - 1))}
         onSelect={setSelected}
         onActivate={choose}
+        focused={!barFocused}
         height={listHeight(screen, 10)}
         width={innerWidth(width, screen)}
         empty={channelGroups === null ? "Loading..." : "No groups"}
         render={(g, sel, w) => <Row selected={sel} text={fit(`(${client.channelGroup === g.id ? "•" : " "}) ${g.name}`, w)} />}
       />
-      <Box marginTop={1} gap={2}>
-        <Button layer="modal" label=" Set " onClick={() => choose(selected)} />
-        <Button layer="modal" label=" Close " color={colors.accent} onClick={close} />
-      </Box>
-      <Hint>{`Sets the group for the channel ${client.name} is in`}</Hint>
+      <ActionBar
+        focused={barFocused}
+        actions={[
+          { label: " Set ", disabled: groups.length === 0, onTrigger: () => choose(selected) },
+          { label: " Close ", color: colors.accent, onTrigger: close },
+        ]}
+      />
+      <Hint>{`Enter/Space sets group for ${client.name}'s channel · Tab buttons · Esc close`}</Hint>
     </Modal>
   );
 }
@@ -265,6 +306,7 @@ export function OfflineMessagesDialog({ controller, dialog, screen }: Props<"off
   const [session, messages] = useSession(controller, dialog.sessionId, (s) => s.offlineMessages);
   const [, open] = useSession(controller, dialog.sessionId, (s) => s.offlineMessage);
   const [selected, setSelected] = useState(0);
+  const [barFocused, setBarFocused] = useState(false);
   const close = () => controller.closeDialog();
   const width = 90;
   const inner = innerWidth(width, screen);
@@ -274,9 +316,15 @@ export function OfflineMessagesDialog({ controller, dialog, screen }: Props<"off
     if (key.escape) {
       if (open) session?.closeOfflineMessage();
       else close();
+    } else if (open && key.backspace) {
+      session?.closeOfflineMessage();
+    } else if (!open && key.tab) {
+      setBarFocused((b) => !b);
     } else if (key.delete || input === "d") {
       const id = open?.messageId ?? current?.messageId;
       if (id !== undefined) session?.deleteOfflineMessage(id);
+    } else if (!open && input === "r") {
+      session?.requestOfflineMessages();
     }
   });
   if (!session) return <Gone controller={controller} screen={screen} title="Offline messages" />;
@@ -289,10 +337,15 @@ export function OfflineMessagesDialog({ controller, dialog, screen }: Props<"off
         <Box marginY={1}>
           <Text wrap="wrap">{open.message}</Text>
         </Box>
-        <Box gap={2}>
-          <Button layer="modal" label=" Back " onClick={() => session.closeOfflineMessage()} />
-          <Button layer="modal" label=" Delete " color={colors.error} onClick={() => session.deleteOfflineMessage(open.messageId)} />
-        </Box>
+        <ActionBar
+          focused
+          marginTop={0}
+          actions={[
+            { label: " Back ", color: colors.accent, onTrigger: () => session.closeOfflineMessage() },
+            { label: " Delete ", color: colors.error, onTrigger: () => session.deleteOfflineMessage(open.messageId) },
+          ]}
+        />
+        <Hint>←→ select · Enter/Backspace back · d/Del delete · Esc back</Hint>
       </Modal>
     );
   }
@@ -303,18 +356,22 @@ export function OfflineMessagesDialog({ controller, dialog, screen }: Props<"off
         selected={Math.min(selected, Math.max(0, list.length - 1))}
         onSelect={setSelected}
         onActivate={(i) => list[i] && session.readOfflineMessage(list[i]!.messageId)}
+        focused={!barFocused}
         height={listHeight(screen, 11)}
         width={inner}
         empty={messages === null ? "Loading..." : "No offline messages"}
         render={(m, sel, w) => <Row selected={sel} dim={m.isRead} text={fit(`${m.isRead ? " " : "●"} ${fit(m.subject || "(no subject)", 40)} ${fit(m.timestamp, 20)} ${m.clientUid}`, w)} />}
       />
-      <Box marginTop={1} gap={2}>
-        <Button layer="modal" label=" Open " disabled={!current} onClick={() => current && session.readOfflineMessage(current.messageId)} />
-        <Button layer="modal" label=" Delete " disabled={!current} onClick={() => current && session.deleteOfflineMessage(current.messageId)} />
-        <Button layer="modal" label=" Refresh " onClick={() => session.requestOfflineMessages()} />
-        <Button layer="modal" label=" Close " color={colors.accent} onClick={close} />
-      </Box>
-      <Hint>Enter or double-click opens · d/Del delete · Esc close</Hint>
+      <ActionBar
+        focused={barFocused}
+        actions={[
+          { label: " Open ", disabled: !current, onTrigger: () => current && session.readOfflineMessage(current.messageId) },
+          { label: " Delete ", disabled: !current, onTrigger: () => current && session.deleteOfflineMessage(current.messageId) },
+          { label: " Refresh ", onTrigger: () => session.requestOfflineMessages() },
+          { label: " Close ", color: colors.accent, onTrigger: close },
+        ]}
+      />
+      <Hint>Enter opens · Tab buttons · d/Del delete · r refresh · Esc close</Hint>
     </Modal>
   );
 }

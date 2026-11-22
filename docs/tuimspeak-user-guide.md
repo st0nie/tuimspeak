@@ -42,10 +42,10 @@ them, and the wheel to scroll. Everything also has a key:
 | Ctrl+T | Toggle to talk (toggle and push-to-talk modes) |
 | F9 / F8 | Hold to talk / hold to whisper (configurable) |
 | Ctrl+X / Ctrl+D | Mute microphone / mute sound |
-| Ctrl+N | Connect to a server |
+| Ctrl+N | Connect to a server (`Enter` also opens it from the welcome screen) |
 | F2 | Settings |
 | F1 or ? | Help |
-| Ctrl+Q | Quit (`q` also works in the tree) |
+| Ctrl+Q | Quit (`q` also works in the tree and welcome screen) |
 
 While mouse tracking is on, select text in the terminal by holding Shift (most
 Linux terminals, Windows Terminal), Option (iTerm2) or Fn (Terminal.app). On
@@ -141,8 +141,10 @@ microphone under Settings → Privacy & security → Microphone.
 
 ## 2.1 Connect
 
-Press Ctrl+N or click `[+]`. Enter an address (`host`, `host:port` or a
+Press Enter on the welcome screen, press Ctrl+N, or click `[+]`. Enter an address (`host`, `host:port` or a
 `ts3server://` link), your nickname, and the server password if there is one.
+Use ↑/↓/Tab to move through bookmarks, fields, checkboxes and buttons, ←/→ to
+switch controls on the same row, and Space/Enter to toggle or activate.
 Tick **Save as bookmark** to keep the server; bookmarks appear at the top of
 the dialog with Connect, Edit and Delete. Passwords are only stored in a
 bookmark when you tick **Store password in bookmark**.
@@ -152,7 +154,7 @@ the active tab sends and plays voice (§8.5).
 
 If the connection drops, the connector retries by itself. A connection that
 has ended shows **Reconnect** in the info pane and the server menu
-(right-click the server row or its tab).
+(right-click the server row or its tab, or press `r` in the tree).
 
 ## 2.2 Talk
 

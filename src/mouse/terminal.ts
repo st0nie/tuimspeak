@@ -14,6 +14,9 @@ export const MOUSE_OFF = "\x1b[?1004l\x1b[?1006l\x1b[?1002l\x1b[?1000l";
 /** Motion with no button held; only enabled while hover matters (menus). */
 export const HOVER_ON = "\x1b[?1003h";
 export const HOVER_OFF = "\x1b[?1003l";
+/** Ink emits `?1049h` without homing the cursor; strict terminals keep the shell prompt's column (§6.1). */
+export const ALT_SCREEN_ON = "\x1b[?1049h";
+export const ALT_SCREEN_HOME = "\x1b[?1049h\x1b[2J\x1b[H";
 
 let enabled = false;
 let hover = false;
@@ -52,6 +55,25 @@ export function disableMouse(): void {
  * A terminal left in mouse-tracking mode prints garbage on every click, so
  * the restore sequence is written on every way out of the process.
  */
+export function withAlternateScreenHome(chunk: string | Uint8Array): string | Uint8Array {
+  if (chunk instanceof Uint8Array) {
+    const text = Buffer.from(chunk).toString("utf8");
+    if (!text.includes(ALT_SCREEN_ON) || text.includes(ALT_SCREEN_HOME)) return chunk;
+    return Buffer.from(text.replaceAll(ALT_SCREEN_ON, ALT_SCREEN_HOME), "utf8");
+  }
+  return chunk.includes(ALT_SCREEN_ON) && !chunk.includes(ALT_SCREEN_HOME) ? chunk.replaceAll(ALT_SCREEN_ON, ALT_SCREEN_HOME) : chunk;
+}
+
+/** Ensures entering `?1049h` immediately clears and homes the alternate screen while preserving the saved main-screen cursor. */
+export function installAlternateScreenHome(stdout: Pick<NodeJS.WriteStream, "write"> = process.stdout): () => void {
+  const original = stdout.write.bind(stdout);
+  stdout.write = ((chunk: string | Uint8Array, ...rest: unknown[]) =>
+    (original as (...args: unknown[]) => boolean)(withAlternateScreenHome(chunk), ...rest)) as typeof stdout.write;
+  return () => {
+    stdout.write = original;
+  };
+}
+
 export function installTerminalRestore(): void {
   process.on("exit", disableMouse);
 }

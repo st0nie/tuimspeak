@@ -113,7 +113,9 @@ export function ChannelTree({ controller, session, width, height, focused }: Pro
   const ownChannel = snapshot?.clients.find((c) => c.id === ownId)?.channel;
 
   const activate = (row: TreeRow) => {
-    if (row.kind === "channel" && row.channel.id !== ownChannel) joinChannel(controller, session, row.channel);
+    if (row.kind === "server") {
+      if (session.store.getState().status === "disconnected") controller.reconnect(session.id);
+    } else if (row.kind === "channel" && row.channel.id !== ownChannel) joinChannel(controller, session, row.channel);
     else if (row.kind === "client" && row.client.id !== ownId) {
       session.openPrivateChat(row.client.id);
       controller.setFocus("chat");
