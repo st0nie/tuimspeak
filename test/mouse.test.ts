@@ -3,7 +3,15 @@ import { describe, expect, test } from "bun:test";
 import { InputSplitter, decodeSgrMouse, type MouseEvent } from "../src/mouse/sgr.ts";
 import { MouseBus, type Rect, type RegionHandlers } from "../src/mouse/bus.ts";
 import { StdinTap } from "../src/mouse/tap.ts";
-import { ALT_SCREEN_HOME, CLEAR_AND_HOME, installAlternateScreenHome, withAlternateScreenHome } from "../src/mouse/terminal.ts";
+import {
+  ALT_SCREEN_HOME,
+  CLEAR_AND_HOME,
+  disableMouse,
+  enableMouse,
+  installAlternateScreenHome,
+  setHoverTracking,
+  withAlternateScreenHome,
+} from "../src/mouse/terminal.ts";
 
 const press = (x: number, y: number, button: "left" | "right" = "left"): MouseEvent => ({
   kind: "press", button, x, y, shift: false, alt: false, ctrl: false,
@@ -227,5 +235,40 @@ describe("StdinTap raw mode (§6.2)", () => {
     expect(rawModes).toEqual([true]);
     tap.dispose();
     expect(rawModes).toEqual([true, false]);
+  });
+});
+
+describe("terminal mouse mode transitions (§6.1)", () => {
+  test("closing a hover menu restores 1002 button tracking in mutually-exclusive terminals (Ghostty/xterm)", () => {
+    const state: { mouseEvent: "none" | "1000" | "1002" | "1003"; sgr: boolean; focus: boolean } = {
+      mouseEvent: "none",
+      sgr: false,
+      focus: false,
+    };
+    const feed = (seq: string) => {
+      for (const m of seq.matchAll(/\x1b\[\?(\d+)([hl])/g)) {
+        const [, code, flag] = m;
+        const on = flag === "h";
+        if (code === "1000" || code === "1002" || code === "1003") {
+          if (on) state.mouseEvent = code;
+          else if (state.mouseEvent === code) state.mouseEvent = "none";
+        } else if (code === "1006") state.sgr = on;
+        else if (code === "1004") state.focus = on;
+      }
+    };
+
+    disableMouse(() => {});
+    enableMouse(feed);
+    expect(state).toEqual({ mouseEvent: "1002", sgr: true, focus: true });
+
+    setHoverTracking(true, feed);
+    expect(state.mouseEvent).toBe("1003");
+
+    // Closing ContextMenu must leave 1002 active rather than dropping to "none".
+    setHoverTracking(false, feed);
+    expect(state).toEqual({ mouseEvent: "1002", sgr: true, focus: true });
+
+    disableMouse(feed);
+    expect(state).toEqual({ mouseEvent: "none", sgr: false, focus: false });
   });
 });

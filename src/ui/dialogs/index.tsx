@@ -31,7 +31,7 @@ export function DialogLayer({ controller, screen }: { controller: Controller; sc
     case "settings":
       return <SettingsDialog {...p} dialog={dialog} />;
     case "menu":
-      return <ContextMenu {...p} dialog={dialog} />;
+      return <ContextMenu key={`menu:${dialog.x}:${dialog.y}:${dialog.title}`} {...p} dialog={dialog} />;
     case "confirm":
       return <ConfirmDialog {...p} dialog={dialog} />;
     case "prompt":

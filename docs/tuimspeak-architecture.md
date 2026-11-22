@@ -274,7 +274,7 @@ offers no events, so tuimspeak has its own layer.
 | `CSI ?1002h` | Motion while a button is held (drag, release anywhere) |
 | `CSI ?1006h` | SGR coordinates: no 223-column limit, releases name their button |
 | `CSI ?1004h` | Focus in and out (§8.2) |
-| `CSI ?1003h` | Any motion; only while a menu is open, for hover highlight |
+| `CSI ?1003h` | Any motion; only while a menu is open, for hover highlight (closing sends `CSI ?1003l CSI ?1000h CSI ?1002h`, as `1000`/`1002`/`1003` are mutually exclusive) |
 
 ### 6.2 Input splitting
 

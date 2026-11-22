@@ -290,7 +290,7 @@ export function ContextMenu({ controller, dialog, screen }: Props<"menu">) {
     close();
     item.action();
   };
-  useMouseRegion(ref, { onPressOutside: close }, { layer: "overlay" });
+  useMouseRegion(ref, { onPressOutside: close, onClick: () => {}, onRightClick: () => {} }, { layer: "overlay" });
   useEffect(() => {
     setHoverTracking(true);
     return () => setHoverTracking(false);

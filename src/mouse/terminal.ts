@@ -10,10 +10,14 @@ import { writeSync } from "node:fs";
  *   1004  focus in/out events
  */
 export const MOUSE_ON = "\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?1004h";
-export const MOUSE_OFF = "\x1b[?1004l\x1b[?1006l\x1b[?1002l\x1b[?1000l";
-/** Motion with no button held; only enabled while hover matters (menus). */
+export const MOUSE_OFF = "\x1b[?1003l\x1b[?1004l\x1b[?1006l\x1b[?1002l\x1b[?1000l";
+/**
+ * Motion with no button held; only enabled while hover matters (menus).
+ * Modes 1000/1002/1003 share one slot in xterm/Ghostty, so leaving 1003 must
+ * re-enable 1000+1002 or mouse tracking turns off completely (§6.1).
+ */
 export const HOVER_ON = "\x1b[?1003h";
-export const HOVER_OFF = "\x1b[?1003l";
+export const HOVER_OFF = "\x1b[?1003l\x1b[?1000h\x1b[?1002h";
 /** Ink emits `?1049h` without homing the cursor; strict terminals keep the shell prompt's column (§6.1). */
 export const ALT_SCREEN_ON = "\x1b[?1049h";
 export const CLEAR_AND_HOME = "\x1b[2J\x1b[H";
@@ -21,7 +25,7 @@ export const ALT_SCREEN_HOME = `${ALT_SCREEN_ON}${CLEAR_AND_HOME}`;
 let enabled = false;
 let hover = false;
 
-function write(sequence: string): void {
+function defaultWrite(sequence: string): void {
   // Synchronous on purpose: this also runs from process 'exit', where
   // asynchronous stream writes are dropped.
   try {
@@ -31,24 +35,23 @@ function write(sequence: string): void {
   }
 }
 
-export function enableMouse(): void {
+export function enableMouse(out: (seq: string) => void = defaultWrite): void {
   if (enabled) return;
   enabled = true;
-  write(MOUSE_ON);
+  out(MOUSE_ON);
 }
 
-export function setHoverTracking(on: boolean): void {
+export function setHoverTracking(on: boolean, out: (seq: string) => void = defaultWrite): void {
   if (!enabled || hover === on) return;
   hover = on;
-  write(on ? HOVER_ON : HOVER_OFF);
+  out(on ? HOVER_ON : HOVER_OFF);
 }
 
-export function disableMouse(): void {
+export function disableMouse(out: (seq: string) => void = defaultWrite): void {
   if (!enabled) return;
-  if (hover) write(HOVER_OFF);
   hover = false;
   enabled = false;
-  write(MOUSE_OFF);
+  out(MOUSE_OFF);
 }
 
 /**
