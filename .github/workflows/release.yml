@@ -1,0 +1,183 @@
+name: Build
+
+on:
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # audiopus_sys bundles an old opus CMakeLists; newer CMake needs this to accept it.
+  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-24.04
+            bun-target: bun-linux-x64-baseline
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            bun-target: bun-linux-arm64
+          - name: darwin-arm64
+            os: macos-15
+            bun-target: bun-darwin-arm64
+          - name: darwin-x64
+            os: macos-13
+            bun-target: bun-darwin-x64
+          - name: windows-x64
+            os: windows-2022
+            bun-target: bun-windows-x64
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source and submodules
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes cmake clang libclang-dev libasound2-dev pkg-config
+
+      - name: Install build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew list cmake >/dev/null 2>&1 || brew install cmake
+
+      - name: Point bindgen at LLVM (Windows)
+        if: runner.os == 'Windows'
+        run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            native/target
+          key: cargo-${{ matrix.name }}-${{ hashFiles('native/tuim-audio/Cargo.lock', 'native/webspeak3/connector/Cargo.lock') }}
+          restore-keys: cargo-${{ matrix.name }}-
+
+      - name: Install JavaScript dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck and test (TypeScript)
+        run: |
+          bun run typecheck
+          bun test
+
+      - name: Format, lint and test (tuim-audio)
+        working-directory: native/tuim-audio
+        env:
+          CARGO_TARGET_DIR: ../target
+        run: |
+          cargo fmt -- --check
+          cargo clippy --release --all-targets -- -D warnings
+          cargo test --release
+
+      - name: Build ts-connector and tuim-audio
+        run: bun run build:native
+
+      - name: Build tuimspeak
+        run: bun scripts/build.ts --target ${{ matrix.bun-target }} --outfile dist/tuimspeak
+
+      - name: Stage files
+        run: |
+          pkg="tuimspeak-${{ matrix.name }}"
+          exe=""
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            exe=".exe"
+            # Bun may or may not append .exe to --outfile for Windows targets.
+            [ -f dist/tuimspeak.exe ] || mv dist/tuimspeak dist/tuimspeak.exe
+          fi
+          mkdir -p "$pkg/licenses"
+          cp "dist/tuimspeak$exe" "native/target/release/ts-connector$exe" "native/target/release/tuim-audio$exe" "$pkg/"
+          cp README.md "$pkg/"
+          cp LICENSE "$pkg/licenses/tuimspeak-LICENSE"
+          cp native/webspeak3/LICENSE "$pkg/licenses/webspeak3-LICENSE"
+          cp native/webspeak3/tsclientlib/LICENSE-MIT "$pkg/licenses/tsclientlib-LICENSE-MIT"
+          cp native/webspeak3/tsclientlib/LICENSE-APACHE "$pkg/licenses/tsclientlib-LICENSE-APACHE"
+          "$pkg/tuimspeak$exe" --version
+
+      - name: Archive (macOS, Linux)
+        if: runner.os != 'Windows'
+        run: |
+          pkg="tuimspeak-${{ matrix.name }}"
+          tar czf "$pkg.tar.gz" "$pkg"
+          shasum -a 256 "$pkg.tar.gz" > "$pkg.tar.gz.sha256"
+
+      - name: Archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pkg = "tuimspeak-${{ matrix.name }}"
+          Compress-Archive -Path $pkg -DestinationPath "$pkg.zip"
+          $hash = (Get-FileHash "$pkg.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -Path "$pkg.zip.sha256" -Value "$hash  $pkg.zip" -Encoding ASCII
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tuimspeak-${{ matrix.name }}
+          path: tuimspeak-${{ matrix.name }}.*
+
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Check the tag matches package.json
+        run: |
+          version=$(jq -r .version package.json)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $version" >&2
+            exit 1
+          fi
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" artifacts/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "tuimspeak ${GITHUB_REF_NAME#v}" \
+            --generate-notes

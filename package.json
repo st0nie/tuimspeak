@@ -1,0 +1,31 @@
+{
+  "name": "tuimspeak",
+  "version": "0.1.0",
+  "description": "A TeamSpeak 3 client for the terminal, with mouse support",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "tuimspeak": "src/main.tsx"
+  },
+  "scripts": {
+    "dev": "bun run src/main.tsx",
+    "build:native": "bun run scripts/build-native.ts",
+    "build": "bun scripts/build.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ink": "8",
+    "react": "19",
+    "string-width": "^9.0.0",
+    "zustand": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.5",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "ink-testing-library": "^4.0.0",
+    "typescript": "^7.0.2"
+  }
+}

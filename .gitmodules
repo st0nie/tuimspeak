@@ -1,0 +1,3 @@
+[submodule "native/webspeak3"]
+	path = native/webspeak3
+	url = https://github.com/WebSpeak3/webspeak3
